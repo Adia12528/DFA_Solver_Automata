@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DFA Automata Solver</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+
+        /* SVG Container Styling */
+        #dfa-network {
+            border: 1px solid #E2E8F0;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            background-color: white;
+            /* We will let SVG scale the height, but give it a min-height */
+            min-height: 450px; 
+            width: 100%;
+            overflow: hidden; /* Prevent SVG content from spilling */
+        }
+
+        /* Loading spinner CSS */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #3182CE;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Transition Table Styles (Kept for completeness) */
+        .transition-table-container {
+            overflow-x: auto;
+        }
+        .transition-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .transition-table th, .transition-table td {
+            border: 1px solid #E2E8F0;
+            padding: 8px 12px;
+            text-align: center;
+        }
+        .transition-table th {
+            background-color: #F7FAFC;
+            font-weight: 600;
+            color: #4A5568;
+        }
+        .transition-table td {
+            background-color: white;
+            color: #2D3748;
+        }
+        .transition-table .start-state {
+            font-weight: bold;
+            background-color: #F0FFF4; /* Light Green */
+        }
+        .transition-table .final-state {
+            font-weight: bold;
+            color: #6B46C1; /* Purple text */
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-extrabold text-blue-800 mb-2">DFA Wizard 🧙‍♂️</h1>
+            <p class="text-gray-600">Input any automata engineering question, and let the AI design and visualize the DFA.</p>
+        </header>
+
+        <!-- Input Area -->
+        <div class="mb-6 bg-white p-6 rounded-xl shadow-lg border border-blue-200">
+            <label for="dfa-question" class="block text-lg font-medium text-gray-700 mb-2">DFA Design Prompt:</label>
+            <textarea id="dfa-question" rows="3"
+                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150"
+                placeholder="e.g., Design a DFA over {0, 1} for all strings containing an odd number of 1s."
+            >Design a DFA over {a, b} for all strings that do not contain the substring 'ab'.</textarea>
+            <button id="solve-button" 
+                class="mt-4 w-full md:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition duration-200 ease-in-out transform hover:scale-[1.01] flex items-center justify-center disabled:opacity-50"
+            >
+                Solve & Visualize DFA
+            </button>
+        </div>
+
+        <!-- Output and Visualization Area -->
+        <div id="results-container" class="space-y-6">
+
+            <!-- Autocorrect/Refined Prompt -->
+            <div id="prompt-feedback" class="hidden bg-purple-100 border-l-4 border-purple-500 p-4 rounded-lg shadow-sm">
+                <p class="font-bold text-purple-800 mb-1">Refined Query:</p>
+                <p id="corrected-prompt" class="text-purple-700 italic text-sm"></p>
+            </div>
+
+            <!-- Formal Definition -->
+            <div id="formal-definition-card" class="hidden bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                <h2 class="text-2xl font-bold text-gray-800 mb-3">Formal Definition (M)</h2>
+                <div id="formal-definition" class="text-gray-700 mb-4"></div>
+                <h3 class="text-xl font-bold text-gray-800 mb-2">Transition Table ($\delta$)</h3>
+                <div id="transition-table" class="transition-table-container"></div>
+            </div>
+
+            <!-- Graphical Visualization -->
+            <div class="bg-white p-6 rounded-xl shadow-lg border border-green-200">
+                <!-- Changed title to reflect user's request for a flow chart -->
+                <h2 class="text-2xl font-bold text-gray-800 mb-3">Flow Chart (State Diagram)</h2>
+                <div id="loading-indicator" class="hidden flex justify-center items-center py-12">
+                    <div class="spinner"></div>
+                    <p class="ml-4 text-lg text-gray-600">Generating DFA structure...</p>
+                </div>
+                <div id="visualization-container" class="w-full">
+                    <!-- SVG Network container -->
+                    <div id="dfa-network">
+                        <p id="visualization-placeholder" class="text-center text-gray-500 py-20">Enter your query above and click "Solve & Visualize DFA" to get started!</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            <div id="error-message" class="hidden bg-red-100 border-l-4 border-red-500 p-4 rounded-lg shadow-sm">
+                <p class="font-bold text-red-800">Error:</p>
+                <p id="error-text" class="text-red-700"></p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Element references
+        const solveButton = document.getElementById('solve-button');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const formalDefinitionElement = document.getElementById('formal-definition');
+        const formalDefinitionCard = document.getElementById('formal-definition-card');
+        const correctedPromptElement = document.getElementById('corrected-prompt');
+        const promptFeedback = document.getElementById('prompt-feedback');
+        const errorMessageDiv = document.getElementById('error-message');
+        const errorText = document.getElementById('error-text');
+        const transitionTableElement = document.getElementById('transition-table');
+        const dfaNetworkContainer = document.getElementById('dfa-network');
+        const visualizationPlaceholder = document.getElementById('visualization-placeholder');
+        
+        // Global variables for API calls
+        const apiKey = "AIzaSyBfzFLbttDPSi-p8x_sNwJzwy1OQOgmJgU"; // Replace with your actual API key
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        // --- Core Gemini API Call Function (UNCHANGED) ---
+        async function callGeminiApi(prompt, maxRetries = 3) {
+            const systemPrompt = `You are a world-class Automata Engineer. Your task is to interpret a natural language request for a Deterministic Finite Automaton (DFA) and convert it into a structured JSON object. 
+If the input prompt is slightly ambiguous or incorrect, you MUST first correct or refine it and provide the refined version in the 'correctedPrompt' field.
+The DFA must be minimal, correct, and complete for the given language.
+The JSON structure MUST strictly adhere to the provided schema. The formalDefinition must be a clean, text-based formal definition of the resulting DFA M = (Q, Σ, δ, q0, F).`;
+
+            const jsonSchema = {
+                type: "OBJECT",
+                properties: {
+                    "correctedPrompt": { "type": "STRING", "description": "The refined, unambiguous version of the user's DFA request. If the original prompt was perfect, just copy it here." },
+                    "formalDefinition": { "type": "STRING", "description": "A clean, text-based formal definition of the resulting DFA M = (Q, Σ, δ, q0, F)." },
+                    "states": {
+                        "type": "ARRAY",
+                        "description": "List of all state names (e.g., q0, q1, q_error).",
+                        "items": { "type": "STRING" }
+                    },
+                    "startState": { "type": "STRING", "description": "The name of the start state (must be one of the states)." },
+                    "finalStates": {
+                        "type": "ARRAY",
+                        "description": "List of all final state names (must be subsets of states).",
+                        "items": { "type": "STRING" }
+                    },
+                    "transitions": {
+                        "type": "ARRAY",
+                        "description": "List of all transitions for the DFA. Must be complete for all states and all symbols in the alphabet.",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "from": { "type": "STRING", "description": "Source state name." },
+                                "to": { "type": "STRING", "description": "Target state name." },
+                                "symbol": { "type": "STRING", "description": "Input symbol (e.g., '0' or 'a')." }
+                            }
+                        }
+                    }
+                },
+                "propertyOrdering": ["correctedPrompt", "formalDefinition", "states", "startState", "finalStates", "transitions"]
+            };
+
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const payload = {
+                        contents: [{ parts: [{ text: prompt }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            responseSchema: jsonSchema
+                        }
+                    };
+                    
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        if (response.status === 429 && i < maxRetries - 1) {
+                            // Exponential backoff
+                            const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                            console.warn(`Rate limit hit (429). Retrying in ${delay}ms...`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue;
+                        }
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    const candidate = result.candidates?.[0];
+
+                    if (candidate && candidate.content?.parts?.[0]?.text) {
+                        const jsonText = candidate.content.parts[0].text;
+                        return JSON.parse(jsonText);
+                    } else {
+                        throw new Error("API response was missing expected content.");
+                    }
+                } catch (error) {
+                    if (i === maxRetries - 1) {
+                        console.error("Failed to fetch/parse after retries:", error);
+                        throw new Error("Could not connect to the DFA generation service or parse the response.");
+                    }
+                }
+            }
+        }
+
+        // --- Function to render the Formal Definition and Transition Table (UNCHANGED) ---
+        function renderFormalDefinition(dfaData) {
+            // 1. Get Alphabet (Sigma)
+            const alphabet = Array.from(new Set(dfaData.transitions.map(t => t.symbol))).sort();
+
+            // 2. Generate the M=(Q, Sigma, delta, q0, F) structure
+            const definitionHtml = `
+                <ul class="list-disc list-inside space-y-1 ml-4 text-gray-700">
+                    <li><strong class="font-mono">Q</strong> (States): \{${dfaData.states.join(', ')}\}</li>
+                    <li><strong class="font-mono">&Sigma;</strong> (Alphabet): \{${alphabet.join(', ')}\}</li>
+                    <li><strong class="font-mono">&delta;</strong> (Transition Function): Defined below in the table.</li>
+                    <li><strong class="font-mono">q<sub>0</sub></strong> (Start State): ${dfaData.startState}</li>
+                    <li><strong class="font-mono">F</strong> (Final States): \{${dfaData.finalStates.join(', ')}\}</li>
+                </ul>
+            `;
+            formalDefinitionElement.innerHTML = definitionHtml;
+
+            // 3. Generate Transition Table
+            let tableHtml = `<table class="transition-table"><thead><tr><th>&delta;</th>`;
+            alphabet.forEach(symbol => {
+                tableHtml += `<th>${symbol}</th>`;
+            });
+            tableHtml += `</tr></thead><tbody>`;
+
+            // Build transition map for quick lookup: map[state][symbol] = nextState
+            const transitionMap = new Map();
+            dfaData.states.forEach(state => transitionMap.set(state, new Map()));
+            dfaData.transitions.forEach(t => {
+                transitionMap.get(t.from).set(t.symbol, t.to);
+            });
+
+            dfaData.states.forEach(state => {
+                const isStart = state === dfaData.startState;
+                const isFinal = dfaData.finalStates.includes(state);
+                
+                let stateClass = '';
+                if (isStart) stateClass += ' start-state';
+                if (isFinal) stateClass += ' final-state';
+                
+                tableHtml += `<tr><td class="${stateClass}">${isStart ? '&rarr; ' : ''}${isFinal ? '* ' : ''}${state}</td>`;
+                
+                alphabet.forEach(symbol => {
+                    const nextState = transitionMap.get(state).get(symbol) || '-'; 
+                    tableHtml += `<td>${nextState}</td>`;
+                });
+                tableHtml += `</tr>`;
+            });
+
+            tableHtml += `</tbody></table>`;
+            transitionTableElement.innerHTML = tableHtml;
+        }
+
+
+        // --- SVG Visualization Function (NEW, NATIVE IMPLEMENTATION) ---
+        function visualizeDFA(dfaData) {
+            const R = 30; // State circle radius
+            const W = 700; // SVG width (responsive container)
+            const H = 450; // SVG height
+            const STATE_SPACING = W / (dfaData.states.length + 1);
+
+            // 1. Create SVG Element
+            let svg = `<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+            
+            // Define arrowhead marker
+            svg += `<defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#4A5568" />
+                        </marker>
+                    </defs>`;
+
+            // 2. Determine State Positions (Simple horizontal spread)
+            const positions = {};
+            dfaData.states.forEach((state, i) => {
+                // Spread states horizontally, centered vertically
+                positions[state] = {
+                    x: (i + 1) * STATE_SPACING - STATE_SPACING / 2 + (W - (dfaData.states.length * STATE_SPACING)) / 2,
+                    y: H / 2
+                };
+            });
+
+            // If there's only one state, center it properly
+            if (dfaData.states.length === 1) {
+                positions[dfaData.states[0]].x = W / 2;
+            }
+
+            // Utility function to calculate the point on the circumference
+            const pointOnCircumference = (cx, cy, tx, ty, radius) => {
+                const angle = Math.atan2(ty - cy, tx - cx);
+                return {
+                    x: cx + radius * Math.cos(angle),
+                    y: cy + radius * Math.sin(angle)
+                };
+            };
+
+            // 3. Draw Transitions (Edges)
+            const transitionGroups = new Map();
+            dfaData.transitions.forEach(t => {
+                const key = `${t.from}-${t.to}`;
+                if (!transitionGroups.has(key)) {
+                    transitionGroups.set(key, { from: t.from, to: t.to, symbols: [] });
+                }
+                transitionGroups.get(key).symbols.push(t.symbol);
+            });
+
+            transitionGroups.forEach(t => {
+                const source = positions[t.from];
+                const target = positions[t.to];
+                const labelText = t.symbols.join(',');
+
+                if (t.from === t.to) {
+                    // Self-loop (Arc above the state)
+                    const x = source.x;
+                    const y = source.y - R;
+                    const arcRadius = R * 0.7;
+                    const controlY = y - arcRadius;
+
+                    // Arc path: M start_x start_y A radius_x radius_y rotation large_arc_flag sweep_flag end_x end_y
+                    svg += `<path d="M ${source.x - R*0.7} ${source.y - R*0.7} A ${R} ${R} 0 1 1 ${source.x + R*0.7} ${source.y - R*0.7}" 
+                                stroke="#4A5568" fill="none" stroke-width="2" marker-end="url(#arrowhead)" />`;
+                    
+                    // Label position (above the loop)
+                    svg += `<text x="${source.x}" y="${source.y - R - 15}" text-anchor="middle" fill="#2D3748" font-size="14">${labelText}</text>`;
+
+                } else {
+                    // Straight Line Transition (Simplified for non-d3 approach)
+                    
+                    // Calculate start and end points on the circle circumference
+                    const startPoint = pointOnCircumference(source.x, source.y, target.x, target.y, R);
+                    const endPoint = pointOnCircumference(target.x, target.y, source.x, source.y, R);
+                    
+                    // Line path
+                    svg += `<line x1="${startPoint.x}" y1="${startPoint.y}" x2="${endPoint.x}" y2="${endPoint.y}" 
+                                stroke="#4A5568" stroke-width="2" marker-end="url(#arrowhead)" />`;
+
+                    // Label position (midpoint of the line)
+                    const midX = (startPoint.x + endPoint.x) / 2;
+                    const midY = (startPoint.y + endPoint.y) / 2;
+
+                    // Background for label for visibility (white rectangle)
+                    svg += `<rect x="${midX - (labelText.length * 4)}" y="${midY - 10}" width="${labelText.length * 8}" height="18" fill="white" stroke="white" stroke-width="4" rx="3" ry="3"/>`;
+                    
+                    // Text label
+                    svg += `<text x="${midX}" y="${midY + 4}" text-anchor="middle" fill="#2D3748" font-size="14">${labelText}</text>`;
+                }
+            });
+
+            // 4. Draw States (Nodes) and Labels
+            dfaData.states.forEach(state => {
+                const pos = positions[state];
+                const isFinal = dfaData.finalStates.includes(state);
+                
+                // Outer circle for final state
+                if (isFinal) {
+                    svg += `<circle cx="${pos.x}" cy="${pos.y}" r="${R + 5}" fill="none" stroke="#9F7AEA" stroke-width="3" />`;
+                }
+
+                // Main state circle
+                const stateColor = isFinal ? '#F3E8FF' : '#EBF8FF';
+                const stateBorder = state === dfaData.startState ? '#48BB78' : '#3182CE';
+                const borderWidth = state === dfaData.startState ? 4 : 2;
+
+                svg += `<circle cx="${pos.x}" cy="${pos.y}" r="${R}" fill="${stateColor}" stroke="${stateBorder}" stroke-width="${borderWidth}" />`;
+
+                // State Label
+                svg += `<text x="${pos.x}" y="${pos.y + 5}" text-anchor="middle" fill="#2D3748" font-weight="bold">${state}</text>`;
+
+                // Start Arrow (if this is the start state)
+                if (state === dfaData.startState) {
+                    const startX = pos.x - R - 30;
+                    const startY = pos.y;
+                    const targetPoint = pointOnCircumference(pos.x, pos.y, startX, startY, R);
+                    
+                    svg += `<line x1="${startX}" y1="${startY}" x2="${targetPoint.x}" y2="${targetPoint.y}" 
+                                stroke="#48BB78" stroke-width="3" marker-end="url(#arrowhead)" />`;
+                }
+            });
+
+            svg += `</svg>`;
+            dfaNetworkContainer.innerHTML = svg;
+        }
+
+        // --- Main Execution Function (Simplified) ---
+        async function solveDFA() {
+            const question = document.getElementById('dfa-question').value.trim();
+
+            if (!question) {
+                displayError("Please enter a DFA design question.");
+                return;
+            }
+
+            // UI State: Show loading, disable button, hide previous results
+            solveButton.disabled = true;
+            loadingIndicator.classList.remove('hidden');
+            formalDefinitionCard.classList.add('hidden');
+            promptFeedback.classList.add('hidden');
+            errorMessageDiv.classList.add('hidden');
+            dfaNetworkContainer.innerHTML = ''; // Clear graph container
+            transitionTableElement.innerHTML = ''; // Clear table
+            formalDefinitionElement.innerHTML = ''; // Clear definition
+            visualizationPlaceholder.classList.add('hidden');
+
+            try {
+                // Removed waitForVis - we are now using native SVG
+                
+                const dfaData = await callGeminiApi(question);
+
+                if (!dfaData || !dfaData.states || dfaData.states.length === 0) {
+                    throw new Error("The API returned an empty or invalid DFA structure.");
+                }
+
+                // 1. Display Feedback and Formal Definition (ENHANCED)
+                correctedPromptElement.textContent = dfaData.correctedPrompt;
+                promptFeedback.classList.remove('hidden');
+
+                renderFormalDefinition(dfaData); // Call function for structured definition
+                formalDefinitionCard.classList.remove('hidden');
+
+                // 2. Visualize the DFA
+                visualizeDFA(dfaData);
+
+            } catch (error) {
+                console.error("DFA Solving failed:", error);
+                // Handle API errors
+                displayError(`Failed to generate the DFA. Details: ${error.message}. Please check your prompt and try again.`);
+                visualizationPlaceholder.classList.remove('hidden');
+            } finally {
+                // UI State: Hide loading, enable button
+                loadingIndicator.classList.add('hidden');
+                solveButton.disabled = false;
+            }
+        }
+
+        function displayError(message) {
+            errorText.textContent = message;
+            errorMessageDiv.classList.remove('hidden');
+        }
+
+        // Event listener is attached directly since we don't need to wait for external scripts anymore
+        window.onload = () => {
+            if (solveButton) {
+                solveButton.addEventListener('click', solveDFA);
+            }
+        };
+
+    </script>
+</body>
+</html>
